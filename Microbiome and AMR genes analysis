@@ -1,0 +1,233 @@
+#
+##
+###
+####
+##### Microbiome and AMR genes analysis (AMRplusplus)
+####
+###
+##
+##
+# 1.load git and test if it is working fine
+	module load git
+	git --version
+	git --help
+## 2.copy or clone the enrique directory from github (https://github.com/EnriqueDoster/bioinformatic-nextflow-pipelines) and check if it is running fine 
+	git clone https://github.com/EnriqueDoster/bioinformatic-nextflow-pipelines
+	nextflow -h
+	############################## NEW VERSION 3 #############################
+	## git clone https://github.com/Microbial-Ecology-Group/AMRplusplus.git ##
+	##########################################################################
+## 3.start new tmux session called "rumen"
+	tmux new -s rumen 
+### DEATTACH:
+	ctrl+b and press d 
+### SEE SESSIONS RUNNING
+	tmux ls
+### ATTACH again session called "rumen"
+	tmux a -t rumen 
+## 4.breaking the command down to REVIEW the input
+### path for reading sequencing data: /home/noyes046/data_delivery/umgc/2022-q1/220104_A00223_0742_AH5KW5DSX3/Noyes_Project_047
+### make sure you add the following at the very end that says "pick all the R1 & R2 fastq.gz files": *_R{1,2}_001.fastq.gz
+### path for host genome: /panfs/roc/risdb/genomes/Bos_taurus/Bos_taurus_UMD_3.1/bwa/Bos_taurus_UMD_3.1.fa
+### path for kraken (where kraken stands): /home/noyes046/shared/tools/kraken2/kraken2_standard_db
+### how many threads are you going to use?: you can use 3 up to 20 or more threads, depending on how many capacity is available for your run 
+## 8.run the AMR++ command 
+	nextflow run main_AmrPlusPlus_v2_withKraken.nf 
+	-resume 
+	-profile local_MSI 
+	--threads 20 
+	--reads '/home/noyes046/data_delivery/umgc/2022-q1/220104_A00223_0742_AH5KW5DSX3/Noyes_Project_047/*_R{1,2}_001.fastq.gz' 
+	--host /panfs/roc/risdb/genomes/Bos_taurus/Bos_taurus_UMD_3.1/bwa/Bos_taurus_UMD_3.1.fa 
+	--kraken_db /home/noyes046/shared/tools/kraken2/kraken2_standard_db 
+	-w work_temp 
+	--output output_rumen
+## 9.enjoy!
+
+#### FOR RUNNING ONLY KRAKEN WITH A GIVEN CONFIDENCE PARAMETER ###
+# 1. Create a new directory in scratch.global/diazo005
+	mkdir rumen 
+	cd rumen
+# 2. git clone bioinformatic-nextflow-pipelines
+	module load git
+	git clone https://github.com/EnriqueDoster/bioinformatic-nextflow-pipelines
+# 3. modify the nf script "minor_kraken2.nf" changing the confidence parameter and some other things. Check code from line 211 to bottom part in the following link:
+	https://github.com/EnriqueDoster/bioinformatic-nextflow-pipelines/blob/master/main_AmrPlusPlus_v2_withKraken.nf # make it look similar
+	nano minor_kraken2.nf
+	ctrl + X
+	Yes
+# 4. I ALREADY HAVE A MODIFIED FILE in MY HOME DIRECTORY: /home/noyes046/diazo005/minor_kraken2.nf
+# 5. Copy that file to folder "bioinformatic-nextflow-pipelines" and move to there
+# 6. Run the following 
+	nextflow run minor_kraken2.nf -profile local_MSI --threads 20 --reads '/scratch.global/diazo005/rumen_MAG/NonHostReads/*_R{1,2}.fastq' --kraken_db /home/noyes046/shared/tools/kraken2/kraken2_standard_db -w work_temp --output output_rumen
+	
+####### COMPARISON of Kraken databases #######
+#
+# Motivation: The number of classified reads using the standard kraken database is too low. Changing the database may increase the read classification
+# Previous study (https://animalmicrobiome.biomedcentral.com/articles/10.1186/s42523-022-00207-7) suggests that rumen needs a custom database to improve read classification with kraken
+# I will test 4 databases: 
+# 1. PlusPFP: This database has been already build and it is available at https://benlangmead.github.io/aws-indexes/k2
+# 	It contains archaea, bacteria, viral, plasmid, human1, UniVec_Core, protozoa, fungi & plant
+# 2. Enrique database (Rumen assembled genomes - RUGs): This database has been already build and it is available at: /home/noyes046/shared/databases/kraken2_databases/Rumen_kraken_v2_Nov2019 
+# 	It contains the standard database (archaea, bacteria, viral, plasmid, human1, UniVec_Core) + Rumen Uncultured Genomes (RUGs). Enrique Doster may have more info (enriquedoster@gmail.com)
+# 3. PlusFP: This database has been already build and it is available at https://benlangmead.github.io/aws-indexes/k2
+# 	It contains archaea, bacteria, viral, plasmid, human1, UniVec_Core, protozoa & fungi  
+# 4. PlusFP+Hungate Rumen genomes: I will need to build this database following instructions at https://github.com/DerrickWood/kraken2/blob/master/docs/MANUAL.markdown#masking-of-low-complexity-sequences
+# 	and also Jarno's help. It will contain archaea, bacteria, viral, plasmid, human1, UniVec_Core, protozoa, fungi & 410 genomes of rumen isolates from Hungate project (info: https://genome.jgi.doe.gov/portal/pages/dynamicOrganismDownload.jsf?organism=HungateCollection)
+# 	More info about Hungate project in the paper https://www.nature.com/articles/nbt.4110 
+#
+## PlusPFP database ##
+# Date: 12/06/22
+# Full database sourced from: https://benlangmead.github.io/aws-indexes/k2
+# getting database and then unzip 
+	wget https://genome-idx.s3.amazonaws.com/kraken/k2_pluspfp_20221209.tar.gz 
+	tar -xvzf k2_pluspfp_20221209.tar.gz 
+# First clone the git for nextflow and create a tmux session
+	git clone https://github.com/EnriqueDoster/bioinformatic-nextflow-pipelines
+	cd /scratch.global/diazo005/kraken/bioinformatic-nextflow-pipelines
+	# It is important to be inside the "bioinformatic-nextflow-pipelines" folder, otherwise it will not run.
+	tmux new -s kraken  
+# Finally run the "minor_kraken2.nf" script using non-host reads as input (bos taurus decontaminated)
+	nextflow run minor_kraken2.nf -profile local_MSI --threads 20 --reads '/scratch.global/diazo005/bioinformatic-nextflow-pipelines/output_rumen/NonHostReads/*.R{1,2}.fastq.gz' --kraken_db /home/noyes046/shared/databases/kraken2_plusPFP_202209 -w work_temp --output output_rumen
+# Removed the intermediate files 
+	rm -r work_temp
+# Output we will get from the output the following: 
+	# "filtered_kraken_analytic_matrix.csv" (located in Filtered_KrakenLongToWide)
+	# "kraken_analytic_matrix.csv" (located in KrakenLongToWide)
+	# All the "Filtered_report" folder (located in RunKraken)
+	# All the "Standard_report" folder (located in RunKraken)
+
+## Enrique database (Standard + RUGs) from 2019 ##
+# Date: 01/23/23
+# Database from Enrique Doster, located at: /home/noyes046/shared/databases/kraken2_databases/Rumen_kraken_v2_Nov2019
+# I will run this from my scratch.global: /scratch.global/diazo005/kraken/bioinformatic-nextflow-pipelines
+	cd /scratch.global/diazo005/kraken/bioinformatic-nextflow-pipelines
+	# It is important to be inside the "bioinformatic-nextflow-pipelines" folder, otherwise it will not run.
+	tmux new -s RUG  
+# Finally run the "minor_kraken2.nf" script using non-host reads as input (plants+ bos taurus decontaminated) 
+	nextflow run minor_kraken2.nf -profile local_MSI --threads 20 --reads '/scratch.global/diazo005/kraken/NonHostReads/*.R{1,2}.fastq.gz' --kraken_db /home/noyes046/shared/databases/kraken2_databases/Rumen_kraken_v2_Nov2019 -w work_temp2 --output output_rumen_krakenE
+# Removed the intermediate files 
+	rm -r work_temp2
+# Output we will get from the output the following: 
+	# "filtered_kraken_analytic_matrix.csv" (located in Filtered_KrakenLongToWide)
+	# "kraken_analytic_matrix.csv" (located in KrakenLongToWide)
+	# All the "Filtered_report" folder (located in RunKraken)
+	# All the "Standard_report" folder (located in RunKraken)
+
+## PlusFP ##
+# Database sourced from: https://benlangmead.github.io/aws-indexes/k2
+# getting database and then unzip 
+	wget https://genome-idx.s3.amazonaws.com/kraken/k2_pluspf_20221209.tar.gz
+	tar -xvzf k2_pluspf_20221209.tar.gz 
+# Finally run the "minor_kraken2.nf" script using non-host reads as input (bos taurus decontaminated)
+	nextflow run minor_kraken2.nf -profile local_MSI --threads 30 --reads '/scratch.global/diazo005/bioinformatic-nextflow-pipelines/output_rumen/NonHostReads/*.R{1,2}.fastq.gz' --kraken_db /scratch.global/diazo005/standardPF_db -w work_temp3 --output output_standard
+# Removed the intermediate files 
+	rm -r work_temp3
+# Output we will get from the output the following: 
+	# "filtered_kraken_analytic_matrix.csv" (located in Filtered_KrakenLongToWide)
+	# "kraken_analytic_matrix.csv" (located in KrakenLongToWide)
+	# All the "Filtered_report" folder (located in RunKraken)
+	# All the "Standard_report" folder (located in RunKraken)
+
+## PlusFP+Hungate Rumen genomes ##
+# Date 02/06
+# According to this paper (https://animalmicrobiome.biomedcentral.com/articles/10.1186/s42523-022-00207-7), the classification accuracy increase when using KrakenRef database + Hungate rumen genomes collection.
+# I have downloaded Hungate 410 genomes from Rumen (Reference: https://genome.jgi.doe.gov/portal/pages/dynamicOrganismDownload.jsf?organism=HungateCollection)
+# Note1: You need to create an account and download data via Globus.org link.
+# Note2: You will get a bunch of folders but you need to pull out only the FASTA files that contain the contigs of each genome and put them in one single directory. I put them in: /scratch.global/diazo005/HungateFASTA
+# 
+# 1. Build the custom standart database first. This will contain: archaea, bacteria, viral, plasmid, human1, UniVec_Core, protozoa, fungi
+# Instructions: https://github.com/DerrickWood/kraken2/blob/master/docs/MANUAL.markdown#custom-databases
+# Note: Kraken (or maybe NCBI) has some bugs/incompatibilty with downloading taxonomy and databases by "kraken2-build" command. I decided to git glone and install kraken by myself
+# You can find kraken2 last git version (v2.1.2) at https://github.com/DerrickWood/kraken2.git
+	module load python3
+	git clone https://github.com/DerrickWood/kraken2.git
+	./install_kraken2.sh .
+# Then modify the line 17 of the script "rsync_from_ncbi.pl" located in the kraken2 directory, basically changing "ftp" to "https". More info: https://github.com/DerrickWood/kraken2/issues/508 
+	nano rsync_from_ncbi.pl
+	# change "if (! ($full_path =~ s#^ftp://${qm_server}${qm_server_path}/##))" to "if (! ($full_path =~ s#^https://${qm_server}${qm_server_path}/##))"
+	# ctrl+X save changes
+# Create a tmux session
+	tmux new -s kraken 
+# DOWNLOADING THE TAXONOMY. Make sure you are standing at your kraken2 directory (/scratch.global/diazo005/kraken2):
+	./kraken2-build --download-taxonomy --db /scratch.global/diazo005/rumen_db --use-ftp 
+# Downloading the libraries requires "dustmasker". This software is contained in the "ncbi_blast+" module in the MSI. You need to activate it before downloading libraries
+	module load ncbi_blast+
+# Download libraries (the process will use the modified script "rsync_from_ncbi.pl"): archaea, bacteria, viral, plasmid, human, UniVec_Core, protozoa, fungi 
+	./kraken2-build --download-library archaea --db /scratch.global/diazo005/rumen_db --threads 20 
+	./kraken2-build --download-library bacteria --db /scratch.global/diazo005/rumen_db --threads 20 
+	./kraken2-build --download-library viral --db /scratch.global/diazo005/rumen_db --threads 20 
+	./kraken2-build --download-library plasmid --db /scratch.global/diazo005/rumen_db --threads 20 
+	./kraken2-build --download-library human --db /scratch.global/diazo005/rumen_db --threads 20 
+	./kraken2-build --download-library UniVec_Core --db /scratch.global/diazo005/rumen_db --threads 20 
+	./kraken2-build --download-library protozoa --db /scratch.global/diazo005/rumen_db --threads 20 
+	./kraken2-build --download-library fungi --db /scratch.global/diazo005/rumen_db --threads 20 
+# Go to folder with Hugate genomes fasta files and change their name for practical purposes (you may need to have the same name in your csv file)
+	cd /scratch.global/diazo005/HungateFASTA
+	for f in *.fasta; do mv "$f" "${f/_\[*\].fasta/.fasta}"; done
+#
+# By Enrique Doster
+# Context/problem: I need to add Hungate genomes to kraken database. To do that I need add the tax ID to each contig header in the fasta file of my new sequences
+# More info: look in my email (diazo005@umn.edu) an email called "Rumen metagenomics database"
+# NOTE: Please note that if the genomes that you want to add have an official taxaID, you may look for their names or taxaID in the file "names.dmp" within the taxonomy folder.
+# 		In case your genomes/taxaID are not in that file you will need to give them a new taxaID and modify the names.dmp file 
+# Creating a script to run seqfu for modifying (adding the "kraken:taxid" string) every single Hungate (multicontig) fasta file 
+# seqfu installation
+	conda create -n seqfu 
+	source activate seqfu
+	conda install -y -c conda-forge -c bioconda "seqfu>1.10"
+# create a sh script to modify every single genome
+# based on the following structure, you can CONCATENATE (USIN EXCEL lol) a command for every genome listed on the Hungate410.csv file	
+	seqfu cat --append "|kraken:taxid|1120918" Acetitomaculum_ruminis_DSM_5522.fasta > N_Acetitomaculum_ruminis_DSM_5522.fasta
+# I have created one and saved as "seqfu_add_kraken_taxaID"
+	nano seqfu_add_kraken_taxaID.sh 
+	# copy the concatenated command for every single genome and then save it. After this run it 
+	chmod 777 seqfu_add_kraken_taxaID
+	./seqfu_add_kraken_taxaID.sh 
+	# you will get all the genomes but with a "N_" at the begining. then move them to a folder "new_fasta" and remove recursively the "N_"
+	mkdir new_fasta
+	cd /scratch.global/diazo005/HungateFASTA_2
+	mv N_* ../new_fasta
+	for f in *.fasta; do mv "$f" "${f/N_/}"; done
+#
+# cd to where kraken2 is located and add the recently created fasta files ("new_fasta")
+	cd /scratch.global/diazo005/kraken2
+	for file in /scratch.global/diazo005/new_fasta/*.fasta; do ./kraken2-build --add-to-library $file --db /scratch.global/diazo005/rumen_db; done
+# please note that if you find some problems when adding genomes, they may be related to dustmasker so MAKE SURE YOU HAVE THE MODULE "ncbi_blast+" ACTIVATED.
+# the problems can also be related to the download of reference genomes from NCBI, so make sure you have modified the script "rsync_from_ncbi.pl" in the kraken2 folder.
+# REMEMBER to have your dustmasker and tmux session activated because the following process takes about 8 hours
+	tmux new -s kraken 
+	module load ncbi_blast+
+# FINALLY, build your database using 20 threads 
+	./kraken2-build --build --threads 20 --db /scratch.global/diazo005/rumen_db
+# Checking output 
+	# Creating sequence ID to taxonomy ID map (step 1)...
+	# Found 72382/74074 targets, searched through 940832983 accession IDs, search complete.
+	# lookup_accession_numbers: 1692/74074 accession numbers remain unmapped, see unmapped.txt in DB directory
+	# Sequence ID to taxonomy ID map complete. [2m8.513s]
+	# Estimating required capacity (step 2)...
+	# Estimated hash table requirement: 74020812800 bytes
+	# Capacity estimation complete. [22m55.709s]
+	# Building database files (step 3)...
+	# Taxonomy parsed and converted.
+	# CHT created with 16 bits reserved for taxid.
+	# Completed processing of 209301 sequences, 168179693978 bp
+	# Writing data to disk...  complete.
+	# Database files completed. [8h34m55.091s]
+	# Database construction complete. [Total: 8h59m59.663s]
+# Don't forget to clean out all the intermediate files 
+	./kraken2-build --clean --db /scratch.global/diazo005/rumen_db
+# Don't forget to inspect your custom database and MAKE SURE YOUR ADDED GENOMES ARE THERE (you can look for genome name or taxaID) 
+	./kraken2-inspect --db /scratch.global/diazo005/rumen_db >> inspect.txt
+	mv inspect.txt ../rumen_db # don't forget to move it to your database folder 
+#
+# 2. Finally run the "minor_kraken2.nf" script using non-host reads as input (bos taurus decontaminated)
+	nextflow run minor_kraken2.nf -profile local_MSI --threads 30 --reads '/scratch.global/diazo005/bioinformatic-nextflow-pipelines/output_rumen/NonHostReads/*.R{1,2}.fastq.gz' --kraken_db /scratch.global/diazo005/rumen_db -w work_temp4 --output output_Hungate
+# Removed the intermediate files 
+	rm -r work_temp4
+# Output we will get from the output the following: 
+	# "filtered_kraken_analytic_matrix.csv" (located in Filtered_KrakenLongToWide)
+	# "kraken_analytic_matrix.csv" (located in KrakenLongToWide)
+	# All the "Filtered_report" folder (located in RunKraken)
+	# All the "Standard_report" folder (located in RunKraken)
+#
+#

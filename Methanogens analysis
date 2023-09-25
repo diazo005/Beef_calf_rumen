@@ -1,0 +1,102 @@
+#
+##
+###
+####
+##### Methanogens analysis (MCycDB)
+####
+###
+##
+#
+# REFERENCE: https://github.com/qichao1984/MCycDB
+# 1. INSTALLATION
+# Follow instructions at https://github.com/qichao1984/MCycDB
+    # clone the git site 
+    git clone https://github.com/qichao1984/MCycDB.git
+    # You will find 4 things:
+    # - MCycDB_2021.zip # database of methane genes. THERE IS A PROBLEM WITH THIS ZIP FILE SO I WROTE THE AUTHORS AND THEY SEND ME THE CORRECT DATABASE
+    # - id2gene.map # sequence IDs to gene names 
+    # - MCycDB_FunctionProfiler.PL # Script for function profile 
+    # - MCycDB_TaxonomyProfiler.PL # Script for taxonomy profile 
+# 2. Locate or install dependencies:
+# - KRAKEN2
+    # Already installed in shared tools. Software located in:
+        cd /home/noyes046/shared/tools/kraken2/kraken2
+    # Kraken2 DATABASE
+        cd /home/noyes046/shared/tools/kraken2/kraken2_standard_db 
+# - SEQTK
+    # Install following instructions in https://github.com/lh3/seqtk
+        git clone https://github.com/lh3/seqtk.git;
+        cd seqtk
+        make 
+        # "make" command seems to be the "installation" function. Do not forget to run "make"
+    # Location 
+        cd /scratch.global/diazo005/MCycDB/seqtk/seqtk
+        # NOTE: I am using a scratch.global location which will be deleted soon. Install in other location later.
+# - DATABASE SEARCHER: You can only use DIAMOND, BLAST, USEARCH
+    # I have chosen DIAMOND!
+    # Already installed in biobakery3 conda env, because I use it for running humann3 
+        cd ~/.conda/envs/biobakery3/bin/diamond
+
+# 3. Modify function and taxonomy scripts: give the paths for dependencies 
+# - MCycDB_FunctionProfiler.PL (function)
+    nano MCycDB_FunctionProfiler.PL
+    # Check line 12. Modify the following: my $diamond = "diamond"
+    # my $diamond = "~/.conda/envs/biobakery3/bin/diamond"
+# - MCycDB_TaxonomyProfiler.PL (taxonomy)
+    nano MCycDB_TaxonomyProfiler.PL
+    # Check line 13. Modify the following: my $diamond = "diamond";
+    # my $diamond = "~/.conda/envs/biobakery3/bin/diamond";
+    # Check line 134. Modify the following: system "~/miniconda3/bin/kraken2
+    # system "/home/noyes046/shared/tools/kraken2/kraken2
+    # Check line 134. Modify the following: --db /share/database/kraken2-fulldatabase
+    # --db /home/noyes046/shared/tools/kraken2/kraken2_standard_db
+    # Check line 125. Modify the following: system("~/miniconda3/bin/seqtk
+    # system("/scratch.global/diazo005/MCycDB/seqtk/seqtk
+
+# 4. Prepare your paired-end reads (MERGE them with PEAR)
+    # You can download pear as academic from https://www.h-its.org/downloads/pear-academic/
+    # You can find documentation and usage at https://cme.h-its.org/exelixis/web/software/pear/doc.html#cl-optional-threads
+    # Let's download and copy the file from local computer using sftp (sftp login)
+        sftp  diazo005@agate.msi.umn.edu
+    # find the path where your tar file is and then:
+        put pear-0.9.11-linux-x86_64.tar.gz .
+    # then unzip the file:
+        tar -xvzf pear-0.9.11-linux-x86_64.tar.gz
+    # the path for running pear will be:
+        /scratch.global/diazo005/MCycDB/PEAR/pear-0.9.11-linux-x86_64/bin/pear
+    # RUN PEAR for merging paired-end nonhost reads in PARALLEL
+        ls *_1.fastq | sed 's/_1.fastq//'| parallel --jobs 2 "/scratch.global/diazo005/MCycDB/PEAR/pear-0.9.11-linux-x86_64/bin/pear -f {}_1.fastq -r {}_2.fastq -o {} -p 0.001 -j 20" >> merge_output.log 2>&1 
+    # Please note that I have deleted the 3 negative controls (Blanks) because they have too little number of reads and will mess the random resampling to the minimun number of sequences for normalization 
+    # Finally I moved all my 97 assembled files (deleted 3 negative control samples) to a new dir "MCycDB_input"
+        mv *.assembled.fastq ../MCycDB_input/
+    # Change the name to match with your sampleinfo.txt file 
+        for f in *.assembled.fastq; do mv "$f" "${f/.assembled.fastq/.fastq}"; done
+		
+# 5. Build your sampleinfo.txt file
+    # Move to "MCycDB_input" directory 
+        cd /scratch.global/diazo005/MCycDB/MCycDB_input
+    # Get the number of lines per each of the samples
+        wc -l *.assembled.fastq | less 
+    # copy everything to an excel and modify: divide by 4 and move names to the 1st column and number of reads to the 2nd and delete extra "assembled.fastq"
+    # Save as txt file "sampleinfo.txt"
+    # Remove the real sampleinfo.txt located at "/scratch.global/diazo005/MCycDB/MCycDB"
+    # get the new "sampleinfo.txt" file from local machine
+# NOTE: It was considered for the rarefaction the lowest number of reads in the "sample info.txt" file: #random sampling: 6188129
+
+# 6. Run FUNCTION PROFILER
+    time perl MCycDB_FunctionProfiler.PL -d /scratch.global/diazo005/MCycDB/MCycDB_input -m diamond -f fastq -s nucl -si sampleinfo.txt -o function_profile >> MCycDB_output.log 2>&1
+    # -d: directory where nonhost reads are located 
+    # -m: method for database searching. we will choose diamond 
+    # -f: extensions of sequence files. we will choose fastq 
+    # -s: sequence type. we will choose nucl (nucleotide)
+    # -si: a tab delimited file containing the sample/file name and the number of sequences
+    # -o: the output file for methane cycle gene profiles.
+# 6.1. Output: It is a gene-level count table. It needs to be organized in a upper level such as mechanism 
+
+# 7. Run TAXONOMY PROFILER
+    time perl MCycDB_TaxonomyProfiler.PL -d /scratch.global/diazo005/MCycDB/MCycDB_input -m diamond -f fastq -s nucl -si sampleinfo.txt >> MCycDB_taxonomy_output.log 2>&1
+    # -d: directory where nonhost reads are located 
+    # -m: method for database searching. we will choose diamond 
+    # -f: extensions of sequence files. we will choose fastq 
+    # -s: sequence type. we will choose nucl (nucleotide)
+    # -si: a tab delimited file containing the sample/file name and the number of sequences

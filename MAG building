@@ -1,0 +1,297 @@
+#
+##
+###
+####
+##### 4. Metagenome-assembled genomes (MAG) building (Megahit, metawrap, dRep, GTDBTk)
+####
+###
+##
+#
+# Thanks to Jared Young	
+#
+# General overview: https://docs.google.com/document/d/1iJgTmdDe3uR7A4r-KhRFU_DidAQWMxn8/edit
+#
+## Based on the following softwares:
+# - For Contig Assembly, MEGAHIT: https://github.com/voutcn/megahit
+# - For Building MAGs (initial binning, bin refinement and bin reassembly), metaWRAP pipeline: https://github.com/bxlab/metaWRAP
+# - For dereplication, dRep software: https://github.com/MrOlm/drep 
+# - For taxonomy assignation, GTDBtk database: https://github.com/Ecogenomics/GTDBTk
+#
+# 0. Providing good quality non-host reads from rumen shotgun metagenomics
+# Make sure you decontamine the host reads for bos taurus and other available plant genomes part of beef diet that can be present in your original reads.
+# For doing so, I have downloaded the following plant genomes and concatenate them to bos taurus into one single fasta file to be provided for BWA indexing and posterior decontamination:
+	- Bos_taurus_UMD_3.1.fa, NC_057962.1 (CHLOROPLAST RefSeq), NC_011713.2 (CHLOROPLAST RefSeq), Genome ARS_RC_1.1, NC_067044.1 (CHLOROPLAST RefSeq), Genome GCA_007115705.1, Genome MPB_Lper_Kyuss_1697, NC_067047.1 (CHLOROPLAST RefSeq), NC_019650.1 (PLASTID RefSeq)
+	cat Bos_taurus_UMD_3.1.fa GCA_007115705.1_ASM711570v1_genomic.fna GCF_019359855.1_MPB_Lper_Kyuss_1697_genomic.fna GCF_020283565.1_ARS_RC_1.1_genomic.fna NC_011713.2.fasta NC_019650.1.fasta NC_057962.1.fasta NC_067044.1.fasta NC_067047.1.fasta > ALL_reference.fa
+# Then I will provide "ALL_reference.fa" file as host reads for host decontamination process ("minor_to_nonhost.nf" script)
+	cd /scratch.global/diazo005/bioinformatic-nextflow-pipelines
+	tmux new -s MAG 
+	nextflow run minor_to_nonhost.nf -resume -profile local_MSI --threads 20 --reads '/scratch.old/diazo005/kraken/RawReads/Noyes_Project_047/*_R{1,2}_001.fastq.gz' --host /scratch.old/diazo005/kraken/plant_genomes/ALL_reference.fa -w work_temp --output output_rumen
+# It finished with the following output information
+	# N E X T F L O W  ~  version 20.10.0
+	# Launching `minor_to_nonhost.nf` [magical_ride] - revision: 70ded17f71
+	# WARN: It appears you have never run this project before -- Option `-resume` is ignored
+	# executor >  local (403)
+	# [24/d2e084] process > RunQC (R0048_S245)             [100%] 100 of 100 ✔
+	# [6a/fc00e7] process > QCStats (null)                 [100%] 1 of 1 ✔
+	# [88/d5e20b] process > BuildHostIndex (ALL_reference) [100%] 1 of 1 ✔
+	# [17/2ff333] process > AlignReadsToHost (R0048_S245)  [100%] 100 of 100 ✔
+	# [48/0221cc] process > RemoveHostDNA (R0048_S245)     [100%] 100 of 100 ✔
+	# [21/8638d9] process > HostRemovalStats (null)        [100%] 1 of 1 ✔
+	# [2d/c5e088] process > NonHostReads (R0048_S245)      [100%] 100 of 100 ✔
+	# Completed at: 11-Jan-2023 13:06:49
+	# Duration    : 2d 1h 3m 32s
+	# CPU hours   : 290.0
+	# Succeeded   : 403	
+# Then I moved my output non-host reads to tier2 "rumen_MAG" folder to safely storage it 
+	s3cmd put --r output_rumen s3://rumen_MAG 
+# Also deleted my intermediate files since they were taking too much storage space
+	rm -rf /scratch.global/diazo005/bioinformatic-nextflow-pipelines/work_temp
+# 1. Log in AGATE and move to node acl100 (A C L one hundred)
+	ssh acl100
+# 2.go to scratch.global directory
+	cd /scratch.global/diazo005
+# 3.create a new directory 
+	mkdir rumen_MAG 
+	cd rumen_MAG 
+# 4.start new tmux session called "MAG"
+	tmux new -s MAG 
+# 5. I will use the fastq files generated in step 0 as non-host reads. These sequences will serve as my INPUT FILES FOR MAG building
+# Folder location: /scratch.global/diazo005/bioinformatic-nextflow-pipelines/output_rumen/NonHostReads
+# Contains: 200 files (100 samples x FW and RV reads)
+# 6. Create the OUTPUT folder for MEGAHIT
+	mkdir megahit_output
+# CONSIDER THIS LIST FOR MAG BUILDING:
+# - Group1 (n=8) (B-castrated, Day1): R0118, R0038, R0117, R0134, R0077, R0128, R0091, R0025
+# - Group2 (n=8) (TO-castrated, Day1): R0097, R0030, R0111, R0127, R0072, R0058, R0048, R0123
+# - Group3 (n=16) (Not-castrated, Day1): R0090, R0036, R0067, R0095, R0137, R0074, R0065, R0046, R0124, R0082, R0032, R0026, R0112, R0028, R0043, R0042
+# - Group4 (n=8) (B-castrated, Day2): R0114, R0016, R0006, R0133, R0119, R0002, R0079, R0107
+# - Group5 (n=8) (TO-castrated, Day2): R0105, R0109, R0022, R0135, R0136, R0121, R0014, R0008, 
+# - Group6 (n=8) (PW-castrated, Day2): R0139, R0113, R0086, R0100, R0098, R0009, R0001, R0070
+# - Group7 (n=8) (No-castrated, Day2): R0138, R0125, R0131, R0013, R0089, R0132, R0071, R0126, 
+# - Group8 (n=16) (Truck-weaned, Day3): R0110, R0004, R0003, R0040, R0055, R0060, R0129, R0130, R0116, R0051, R0044, R0047, R0101, R0122, R0005, R0078
+# - Group9 (n=15) (Fence-weaned, Day3): R0011, R0106, R0099, R0035, R0020, R0023, R0029, R0104, R0015, R0031, R0053, R0108, R0063, R0115, R0045
+# - Group10 (n=5) (Positive and negative controls): Mock1, Mock2, R0012, R0120, R0140
+#
+####### MEGAHIT: CONTIG ASSEMBLY #######
+#
+# Since we have already filtered the host reads, we will skip the following steps (detailed at: https://github.com/bxlab/metaWRAP/blob/master/Module_descriptions.md):
+# - Not doing RAW reads filtering based on quality (fastp software)
+# - Not doing host DNA removal (BWA, bedtools and samtools softwares)
+# - Not doing NON-HOST reads filtering based on quality (fastp software)
+#
+# Copy NonHostReads in groups as detailed before (9 groups in total):
+	cd /scratch.global/diazo005/bioinformatic-nextflow-pipelines/output_rumen/NonHostReads
+	cp R0118_* R0038_* R0117_* R0134_* R0077_* R0128_* R0091_* R0025_* /scratch.global/diazo005/rumen_MAG/NonHostReads1
+	cp R0097_* R0030_* R0111_* R0127_* R0072_* R0058_* R0048_* R0123_* /scratch.global/diazo005/rumen_MAG/NonHostReads2
+	cp R0090_* R0036_* R0067_* R0095_* R0137_* R0074_* R0065_* R0046_* R0124_* R0082_* R0032_* R0026_* R0112_* R0028_* R0043_* R0042_* /scratch.global/diazo005/rumen_MAG/NonHostReads3
+	cp R0114_* R0016_* R0006_* R0133_* R0119_* R0002_* R0079_* R0107_* /scratch.global/diazo005/rumen_MAG/NonHostReads4
+	cp R0105_* R0109_* R0022_* R0135_* R0136_* R0121_* R0014_* R0008_* /scratch.global/diazo005/rumen_MAG/NonHostReads5
+	cp R0139_* R0113_* R0086_* R0100_* R0098_* R0009_* R0001_* R0070_* /scratch.global/diazo005/rumen_MAG/NonHostReads6
+	cp R0138_* R0125_* R0131_* R0013_* R0089_* R0132_* R0071_* R0126_* /scratch.global/diazo005/rumen_MAG/NonHostReads7
+	cp R0110_* R0004_* R0003_* R0040_* R0055_* R0060_* R0129_* R0130_* R0116_* R0051_* R0044_* R0047_* R0101_* R0122_* R0005_* R0078_* /scratch.global/diazo005/rumen_MAG/NonHostReads8
+	cp R0011_* R0106_* R0099_* R0035_* R0020_* R0023_* R0029_* R0104_* R0015_* R0031_* R0053_* R0108_* R0063_* R0115_* R0045_* /scratch.global/diazo005/rumen_MAG/NonHostReads9
+	cp Mock1_* Mock2_* R0012_* R0120_* R0140_* /scratch.global/diazo005/rumen_MAG/NonHostReads10
+
+### OPTIONAL STARTS...Do it only if you have problems with the file names. If not just 	IGNORE IT ###
+# Rename all the fastq.gz files to fastq:
+	for file in *.fastq.gz; do mv -- "$file" "${file%.fastq.gz}.fastq"; done 
+### OPTIONAL ENDS.......................................................................IGNORE IT ###
+
+# You will do the same thing for every NonHostReads folder: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10
+# Gunzip all the files 
+	gunzip *
+# Then Change the name of all the samples to be recognize for the loop in the next step:
+	for f in *.fastq; do mv "$f" "${f/_S***.non.host.R/_R}"; done
+# Use the following command to run MEGAHIT (located in noyes046 folder) in a loop for all the samples located in NonHostReads folder:
+	for file in *_R1.fastq; do f=$(echo $file | sed -E "s/\_.*//"); /home/noyes046/shared/tools/MEGAHIT-1.2.9-Linux-x86_64-static/bin/megahit --min-count 2 --k-min 27 --k-max 87 --num-cpu-threads 20 --min-contig-len 500 -1 "$f"_R1.fastq -2 "$f"_R2.fastq -o "$file"_assembled.fasta/ >> megahit_output.log 2>&1; done
+# Go to every folder (NonHostReads1, NonHostReads2...NonHostReads9) and within every folder do the following (you will need to do it separately for all the 9 folders):
+# Create an ASSEMBLY folder	
+	mkdir ASSEMBLY 
+# move the assembled.fasta folders to ASSEMBLY directory
+	mv *assembled.fasta ASSEMBLY/.
+### NOTE: I only obtained 1 contig from the negative controls R0140 and R0120 using MEGAHIT so I did not proceed further because the BINNING process did only went fine with metabat2. maxbin2 and concoct did not produce anything.
+#
+# TO CALCULATE contig coverage and extract unassembled reads, AND OTHER QUESTIONS, please see: https://github.com/voutcn/megahit/wiki/An-example-of-real-assembly
+
+#
+######## metaWRAP: MAG building #######
+#
+# We will work with "*.assembled.fasta" folders, which are output from MEGAHIT contig assembly process
+# and also will use the NonHostReads fastq files 
+# Go back to tmux session
+	tmux a -t MAG 
+
+# INSTALLATION
+# You should activate python and then create and install the metawrap software in a conda envrionment
+	module load python3
+	conda install -y mamba 
+	mamba create -y --name metawrap-env --channel ursky metawrap-mg=1.3.2
+	source activate metawrap-env 
+	conda install -y blas=2.5=mkl # To fix the CONCOCT endless warning messages in metaWRAP=1.2+, run
+# DOWNLOAD database CheckM 
+# Database "CheckM_database" is needed for refinement (bin_refinement) and reassembly (reassemble_bins)
+# We will download this database in the shared folder of Noyes Lab
+	cd /home/noyes046/shared/databases
+	mkdir CheckM_database
+	cd CheckM_database
+	wget https://data.ace.uq.edu.au/public/CheckM_databases/checkm_data_2015_01_16.tar.gz
+	tar -xvf *.tar.gz
+	rm *.gz
+	cd ..
+	# Now you need to give CheckM the path to the database folder (/home/noyes046/shared/databases/CheckM_database) before running anything:
+		checkm data setRoot /home/noyes046/shared/databases/CheckM_database
+
+# BINNING
+# We will Run a test for individual samples beffore running a loop to iterate through all the sample set (100 samples) 
+# IMPORTANT: For some reason the binning command will only accept fastq files in the format "name_1.fastq". So make sure to rename them to end in "_1.fastq" and "_2.fastq". Example:
+	for f in *.fastq; do mv "$f" "${f/_R/_}"; done  	
+### ONLY DONE IN THE FIRST TRY
+# TEST RUN: The plan is to use 20 threads, time the process (command time) and print all the oupput in one file (>> File_name.log 2>&1)
+	time metawrap binning -o BINNING/R0120 -t 20 -a ASSEMBLY/R0120_R1.fastq_assembled.fasta/final.contigs.fa --metabat2 --maxbin2 --concoct R0120_1.fastq R0120_2.fastq  
+# It took 18 minutes per sample !!!!
+### Final ONLY DONE IN THE FIRST TRY
+# FINAL RUN: We will run everything in parallel
+	ls ASSEMBLY | sed 's/_R1.fastq.gz_assembled.fasta//' | parallel --jobs 2 "time metawrap binning -o BINNING/{} -t 20 -a ASSEMBLY/{}_R1.fastq.gz_assembled.fasta/final.contigs.fa --metabat2 --maxbin2 --concoct {}_1.fastq {}_2.fastq" >> binning_output.log 2>&1   	
+# Check that every output contains: concoct, metabat2, maxbin2 folders 
+# If there are not results for every binner software you may do the binning in a single manner (Do not forget to create a tmux session and load your env)
+	source activate metawrap-env 
+	# For CONCOCT (run it standing at NonHostReadsX folder):
+	time metawrap binning -o BINNING -t 16 -a ASSEMBLY/RXXXX_R1.fastq.gz_assembled.fasta/final.contigs.fa --concoct RXXXX_1.fastq RXXXX_2.fastq >> concoct.log 2>&1 
+# After you get the 3 types of BINS (concoct, maxbin2, metabat2) for your 100 samples separated in the 10 "NonHostReads" folders, you can proceed with the REFINEMENT
+
+# REFINEMENT
+# Input: concoct, metabat2, maxbin2 bins
+# You will need to repeat the same process for each of the 10 "NonHostReads" folder
+	cd /scratch.global/diazo005/rumen_MAG/NonHostReads(x)
+# make a new dir on each NonHostReads folder. standing in the NonHostReads folder, do:
+	mkdir REFINEMENT
+# Create a tmux session and do the refinement in parallel with 3 jobs and 20 threads
+# I DECIDED to have 2 SETS OF MAGs: (1) medium-quality 50% completion and 10% contamination, and (2) 80% completion and 5% contamination
+	tmux new -s MAG 
+	module load python3
+	source activate metawrap-env
+# Refining the 1st set of MAGs: (1) medium-quality 50% completion and 10% contamination
+	ls ASSEMBLY | sed 's/_R1.fastq.gz_assembled.fasta//' | parallel --jobs 3 "metawrap bin_refinement -o REFINEMENT/{} -t 20 -A BINNING/{}/metabat2_bins/ -B BINNING/{}/maxbin2_bins/ -C BINNING/{}/concoct_bins/ -c 50 -x 10" >> refinement_output.log 2>&1
+# To evaluate how many "good bins" (based on out >50% comp., <10% cont. metric) metaWRAP produced. Standing in "rumen_MAG" folder we can run:
+	cat */REFINEMENT/*/metawrap_50_10_bins.stats | awk '$2>50 && $3<10' | wc -l
+
+
+
+# REASSEMBLY
+# Same thing as with REFINEMENT. I will have 2 sets of MAGs: (1) medium-quality 50% completion and 10% contamination, and (2) 80% completion and 5% contamination
+# Input: metawrap refined bins (metawrap_50_10_bins) and NonHostReads
+# Let's run in Parallel but you will need to repeat the same process for each of the 10 "NonHostReads" folder
+	cd /scratch.global/diazo005/rumen_MAG/NonHostReads(x)
+# make a new dir on each NonHostReads folder. standing in the NonHostReads folder, do:
+	mkdir REASSEMBLY
+# Create a tmux session and do the refinement in parallel with 2 jobs and 30 threads
+	tmux new -s MAG # or go back to your past session 
+	module load python3
+	source activate metawrap-env
+# Reassembling the 1st set of MAGs: (1) medium-quality 50% completion and 10% contamination
+	ls ASSEMBLY | sed 's/_R1.fastq.gz_assembled.fasta//' | parallel --jobs 2 "metawrap reassemble_bins -t 30 -m 800 -c 50 -x 10 -o REASSEMBLY/{} -b REFINEMENT/{}/metawrap_50_10_bins -1 {}_1.fastq -2 {}_2.fastq" >> reassembly_output.log 2>&1
+
+####### De-replication (dRep): OPTIONAL ########
+# More info at: 
+# Input: The reassembled bins produced in the step before
+# 
+#
+#
+#
+####### Taxonomic identification (GTDBTk) #######
+# More info at: https://ecogenomics.github.io/GTDBTk/commands/classify_wf.html 
+# Installation: https://github.com/Ecogenomics/GTDBTk 
+# Create conda environment 
+	conda create -n gtdbtk-2.1.1 -c conda-forge -c bioconda gtdbtk=2.1.1
+# Conda activate environment
+	source activate gtdbtk-2.1.1
+# Download external gtdbtk data
+	download-db.sh 
+# Reactivate your environment to make the download of gtdbtk data take effect 
+	source deactivate
+	source activate gtdbtk-2.1.1
+# According to an issue (https://github.com/Ecogenomics/GTDBTk/issues/459), you may need to install the a previous version of numpy 
+	conda install numpy=1.23.1
+# You can check that is working before you run
+	gtdbtk check_install
+#
+# I will analyze both (1) dereplicated N=XXX and (2) non-dereplicated MAGs N=697
+# 1. DEREPLICATED 
+# 2. NON-DEREPLICATED 
+# MOVE the reassembled non-dereplicated bins to a single folder. Standing on NonHostReads(x) folder you will run this (make sure to run the same for every NonHostReads folder):
+	# move bins located on reassembled_bins folder on each Sample. Stand in NonHostReads(x)/REASSEMBLY folder
+	for i in *; do (cd $i/reassembled_bins/. && cp *.fa ../); done 
+ 	# rename the bins appending the sample (parent folder) name as prefix of each bin name. Stand in NonHostReads(x)/REASSEMBLY folder
+	for f in */*.fa; do mv "$f" "${f%%/*}/${f%%/*}_${f##*/}"; done
+	# move al the bins (*.fa) to a single folder. Stand in NonHostReads(x)/REASSEMBLY folder
+	mv */*.fa /scratch.global/diazo005/rumen_MAG/NO_Drep_bins
+# RUN taxonomic classification. Standing in rumen_MAG directory 
+	mkdir NO_Drep_MAG
+	tmux new -s MAG 
+	source activate gtdbtk-2.1.1
+	gtdbtk classify_wf --cpus 60 --genome_dir NO_Drep_bins --out_dir NO_Drep_MAG --extension fa >> gtdbtk_output.log 2>&1
+#
+#
+####### FIRST TRY RESULTS (Not too good) ########
+# I got 46 samples correctly and 54 uncomplete runs 
+# I WILL CONTINUE WITH THE 46 SAMPLES that have 3 folders (succesfully finished)
+# 
+
+# REFINEMENT 
+# Input: concoct, metabat2, maxbin2 bins
+# cd /scratch.global/diazo005/rumen_MAG
+#TEST RUN: I will run 3 samples by separate 
+# Sample 1
+# Create tmux session and attach
+	tmux new -s MAG1
+	tmux a -t MAG1
+# Run refinenment
+	module load python3
+	source activate metawrap-env
+	metawrap bin_refinement -o BIN_REFINEMENT/Mock1 -t 20 -A INITIAL_BINNING/Mock1/metabat2_bins/ -B INITIAL_BINNING/Mock1/maxbin2_bins/ -C INITIAL_BINNING/Mock1/concoct_bins/ -c 80 -x 10 
+# Sample 2
+# Create tmux session and attach
+	tmux new -s MAG2
+	tmux a -t MAG2
+# Run refinement
+	module load python3
+	source activate metawrap-env
+	time metawrap bin_refinement -o BIN_REFINEMENT/Mock2 -t 20 -A INITIAL_BINNING/Mock2/metabat2_bins/ -B INITIAL_BINNING/Mock2/maxbin2_bins/ -C INITIAL_BINNING/Mock2/concoct_bins/ -c 80 -x 10
+# Sample 3
+# Create tmux session and attach
+	tmux new -s MAG3
+	tmux a -t MAG3
+# Run refinement
+	module load python3
+	source activate metawrap-env
+	time metawrap bin_refinement -o BIN_REFINEMENT/R0001 -t 20 -A INITIAL_BINNING/R0001/metabat2_bins/ -B INITIAL_BINNING/R0001/maxbin2_bins/ -C INITIAL_BINNING/R0001/concoct_bins/ -c 80 -x 10
+# IT WORKED! LET'S RUN IN PARALLEL in batches of 10 samples, using 3 jobs and 20 threads
+# List1
+Mock1, Mock2, R0001, R0002, R0004, R0014, R0015, R0020, R0025, R0026, R0028, R0031, R0032
+# List2
+R0036, R0043, R0045, R0047, R0048, R0051, R0055, R0065, R0070, R0072
+# List3
+R0077, R0082, R0091, R0098, R0099, R0104, R0105, R0106, R0107, R0111, R0112, R0113, R0114, R0115, R0122, R0126, R0127, R0130, R0131, R0134, R0136, R0138, R0139
+# parallel
+	cat MAG1.txt | parallel --jobs 3 "metawrap bin_refinement -o BIN_REFINEMENT/{} -t 20 -A INITIAL_BINNING/{}/metabat2_bins/ -B INITIAL_BINNING/{}/maxbin2_bins/ -C INITIAL_BINNING/{}/concoct_bins/ -c 80 -x 10" >> refinement_output1.log 2>&1
+	cat MAG2.txt | parallel --jobs 3 "metawrap bin_refinement -o BIN_REFINEMENT/{} -t 20 -A INITIAL_BINNING/{}/metabat2_bins/ -B INITIAL_BINNING/{}/maxbin2_bins/ -C INITIAL_BINNING/{}/concoct_bins/ -c 80 -x 10" >> refinement_output2.log 2>&1
+	cat MAG3.txt | parallel --jobs 3 "metawrap bin_refinement -o BIN_REFINEMENT/{} -t 20 -A INITIAL_BINNING/{}/metabat2_bins/ -B INITIAL_BINNING/{}/maxbin2_bins/ -C INITIAL_BINNING/{}/concoct_bins/ -c 80 -x 10" >> refinement_output3.log 2>&1
+
+# REASSEMBLY
+# Let's run in Parallel. We will use the same lists 1, 2, 3 to load the samples
+# We will run in 3 chunks!	
+	cat MAG1.txt | parallel --jobs 2 "metawrap reassemble_bins -o BIN_REASSEMBLY/{} -b BIN_REFINEMENT/{}/metawrap_80_10_bins -1 NonHostReads/{}_1.fastq -2 NonHostReads/{}_2.fastq -t 30 -m 800 -c 80 -x 10" >> reassembly_output1.log 2>&1
+	cat MAG2.txt | parallel --jobs 2 "metawrap reassemble_bins -o BIN_REASSEMBLY/{} -b BIN_REFINEMENT/{}/metawrap_80_10_bins -1 NonHostReads/{}_1.fastq -2 NonHostReads/{}_2.fastq -t 30 -m 800 -c 80 -x 10" >> reassembly_output2.log 2>&1
+	cat MAG3.txt | parallel --jobs 2 "metawrap reassemble_bins -o BIN_REASSEMBLY/{} -b BIN_REFINEMENT/{}/metawrap_80_10_bins -1 NonHostReads/{}_1.fastq -2 NonHostReads/{}_2.fastq -t 30 -m 800 -c 80 -x 10" >> reassembly_output3.log 2>&1
+
+
+# TO DO:
+# 3 jobs in parallel bin and reassembly
+# 3 jobs and 24 threads for binning & refinement
+# 46 samples succesfully run.
+# 54 samples did't: for example: R0140 only has maxbin2 folder...
+
+
+1. 3 out of 46 samples for steps b (bin refinement) and step c (reassembly). if ok continue
+2. 43 out of 46 samples for steps b (bin refinement) and step c (reassembly). in batches of 10 samples.
+	

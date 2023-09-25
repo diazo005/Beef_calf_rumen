@@ -1,0 +1,178 @@
+#
+##
+###
+####
+##### Others (Extra process like Metaphlan, Humman3, etc)
+####
+###
+##
+#
+##############################################
+##        Metabolic Pathways Analysis       ##
+##           (HUMAnN 3.0)                   ##
+##                 RUMEN                    ##
+##############################################
+#
+####### INSTALLATION #######
+#
+# 1. Log in AGATE and move to node acl100 (A C L one hundred)
+	ssh acl100
+# 2. Go to scratch.global directory
+	cd /scratch.global/diazo005
+# 3. Create a new directory 
+	mkdir rumen_metabolics 
+# 4. Go to shared tools directory 
+	cd /home/noyes046/shared/tools/humann 
+# 5. Create a conda environment for humann3 according to the "humann3.yml" indications
+	conda env create -f humann3.yml
+# 6. Create a tmux session (To re-attach: tmux a -t humann)
+	tmux new -s humann 
+# 7. Activate the environment (To deactivate environment: source deactivate)
+	conda activate humann3
+# 8. Test the software (Should print the help menu) 
+	humann -h
+# 9. Test if Metaphlan is installed
+	metaphlan --version
+
+#
+####### TEST #######
+#
+# Make sure to have humann3 environment activated
+	conda activate humann3
+# I copied all the "humann" directory from "shared/tools" to my home directory
+	cp /home/noyes046/shared/tools/humann /home/noyes046/diazo005
+# I moved to examples directory:
+	cd ~/humann/examples
+# I downloaded the example databases
+# The commands below download the demo-scale databases to a folder named "humann_dbs" in the current working directory
+	humann_databases --download chocophlan DEMO humann_dbs
+	humann_databases --download uniref DEMO_diamond humann_dbs
+# I ran the following code in the "examples" folder 
+	humann --input demo.fastq.gz --output demo_fastq --threads 16
+# I got the following ERROR MESSAGE:
+	# Creating output directory: /panfs/roc/groups/11/noyes046/diazo005/humann/examples/demo_fastq
+	# Output files will be written to: /panfs/roc/groups/11/noyes046/diazo005/humann/examples/demo_fastq
+	# Decompressing gzipped file ...
+	# 
+	# 
+	# Running metaphlan ........
+	# 
+	# CRITICAL ERROR: Error executing: /home/noyes046/diazo005/.conda/envs/humann3/bin/metaphlan /panfs/roc/groups/11/
+	# noyes046/diazo005/humann/examples/demo_fastq/demo_humann_temp/tmpp_ptudn3/tmpzbt96zmj -t rel_ab -o /panfs/roc/gr
+	# oups/11/noyes046/diazo005/humann/examples/demo_fastq/demo_humann_temp/demo_metaphlan_bugs_list.tsv --input_type
+	# fastq --bowtie2out /panfs/roc/groups/11/noyes046/diazo005/humann/examples/demo_fastq/demo_humann_temp/demo_metap
+	# hlan_bowtie2.txt --nproc 16
+	# 
+	# Error message returned from metaphlan :
+	# No MetaPhlAn BowTie2 database found (--index option)!
+	# Expecting location bowtie2db
+	# Exiting...
+
+# I fixed it as follows:
+# I downloaded a fresh new environment for HUMAnN 3.1 which includes MetaPhlAn 3.1, following the indications from:
+# https://forum.biobakery.org/t/announcing-metaphlan-3-1-and-humann-3-1/3881
+# I entered this link: https://huttenhower.sph.harvard.edu/humann
+# Followed the steps:
+# Create and activate a new conda environment called "biobakery3"
+	conda create --name biobakery3 python=3.7
+	conda activate biobakery3
+# Set conda channel priority
+	conda config --add channels defaults
+	conda config --add channels bioconda
+	conda config --add channels conda-forge
+	conda config --add channels biobakery
+# Install HUMAnN 3.1 software with demo databases:
+	conda install humann -c biobakery
+# Tested my INSTALLATION	
+	humann_test
+# I moved to examples directory (within the already copied humann directory):
+	cd ~/humann/examples
+# I ran the following code in the "examples" folder 
+	humann --input demo.fastq.gz --output demo_fastq --threads 16
+# I got the following OUTPUT:
+	# Creating output directory: /panfs/roc/groups/11/noyes046/diazo005/humann/examples/demo_fastq
+	# Output files will be written to: /panfs/roc/groups/11/noyes046/diazo005/humann/examples/demo_fastq
+	# Decompressing gzipped file ...
+	# 
+	# 
+	# Running metaphlan ........
+	# 
+	# Found t__SGB1815 : 53.72% of mapped reads ( s__Bacteroides_dorei,s__Phocaeicola_vulgatus,s__Bacteroides_v$
+	# lgatus,s__Bacteroides_sp_9_1_42FAA,s__Bacteroides_sp_3_1_33FAA,s__Bacteroides_sp_NMBE5,s__Phocaeicola_dor$
+	# i,s__Bacteroidaceae_bacterium,g__Phocaeicola.s__Phocaeicola_vulgatus,g__Bacteroides.s__Bacteroides_sp_9_1$
+	# 42FAA,g__Bacteroides.s__Bacteroides_sp_3_1_33FAA,g__Bacteroides.s__Bacteroides_sp_NMBE5,g__Bacteroidaceae$
+	# unclassified.s__Bacteroidaceae_bacterium )
+	# Found t__SGB1814 : 46.28% of mapped reads ( s__Bacteroides_vulgatus,s__Bacteroides_dorei,s__Phocaeicola_d$
+	# rei,s__Bacteroides_sp_3_1_33FAA,s__Bacteroides_sp_4_3_47FAA,s__Bacteroides_sp_3_1_40A,s__Bacteroides_sp_A$
+	# 18_9,s__Bacteroides_sp_AM23_18,s__Bacteroides_sp_AF39_10AT,s__Bacteroides_sp_AF32_15BH,s__Bacteroides_sp_$
+	# F25_18,s__Bacteroides_sp_AF16_29,s__Bacteroides_sp_AM28_6,s__Bacteroides_sp_AM27_13,s__Bacteroides_sp_AM2$
+	# _11,s__Bacteroides_sp_AF15_23LB,s__Bacteroides_sp_AF17_1,g__Phocaeicola.s__Phocaeicola_dorei,g__Bacteroid$
+	# s.s__Bacteroides_sp_3_1_33FAA,g__Bacteroides.s__Bacteroides_sp_4_3_47FAA,g__Bacteroides.s__Bacteroides_sp$
+	# 3_1_40A,g__Bacteroides.s__Bacteroides_sp_AM18_9,g__Bacteroides.s__Bacteroides_sp_AM23_18,g__Bacteroides.s_
+	# _Bacteroides_sp_AF39_10AT,g__Bacteroides.s__Bacteroides_sp_AF32_15BH,g__Bacteroides.s__Bacteroides_sp_AF25
+	# _18,g__Bacteroides.s__Bacteroides_sp_AF16_29,g__Bacteroides.s__Bacteroides_sp_AM28_6,g__Bacteroides.s__Bac
+	# teroides_sp_AM27_13,g__Bacteroides.s__Bacteroides_sp_AM26_11,g__Bacteroides.s__Bacteroides_sp_AF15_23LB,g_
+	# _Bacteroides.s__Bacteroides_sp_AF17_1 )
+	# 
+	# Total species selected from prescreen: 47
+	# 
+	# Selected species explain 100.00% of predicted community composition
+	# 
+	# 
+	# Creating custom ChocoPhlAn database ........
+	# 
+	# Running bowtie2-build ........                                                                  [870/1996]
+	# 
+	# 
+	# Running bowtie2 ........
+	# 
+	# Total bugs from nucleotide alignment: 2
+	# g__Bacteroides.s__Bacteroides_dorei: 1270 hits
+	# g__Bacteroides.s__Bacteroides_vulgatus: 1335 hits
+	# 
+	# Total gene families from nucleotide alignment: 572
+	# 
+	# Unaligned reads after nucleotide alignment: 87.5952380952 %
+	# 
+	# 
+	# Running diamond ........
+	# 
+	# 
+	# Aligning to reference database: uniref90_demo_prots_v201901b.dmnd
+	# 
+	# Total bugs after translated alignment: 3
+	# g__Bacteroides.s__Bacteroides_dorei: 1270 hits
+	# g__Bacteroides.s__Bacteroides_vulgatus: 1335 hits
+	# unclassified: 1017 hits
+	# 
+	# Total gene families after translated alignment: 615
+	# 
+	# Unaligned reads after translated alignment: 82.8857142857 %
+	# 
+	# 
+	# Computing gene families ...
+	# 
+	# Computing pathways abundance and coverage ...
+	# 
+	# Output files created:
+	# /panfs/roc/groups/11/noyes046/diazo005/humann/examples/demo_fastq/demo_genefamilies.tsv
+	# /panfs/roc/groups/11/noyes046/diazo005/humann/examples/demo_fastq/demo_pathabundance.tsv
+	# /panfs/roc/groups/11/noyes046/diazo005/humann/examples/demo_fastq/demo_pathcoverage.tsv
+
+# Then I downloaded the databases to the "shared/databases" in the noyes046 group
+# To upgrade your pangenome database:
+	humann_databases --download chocophlan full /home/noyes046/shared/databases/humann3 --update-config yes
+# To upgrade your protein database:
+	humann_databases --download uniref uniref90_diamond /home/noyes046/shared/databases/humann3 --update-config yes
+# To upgrade your annotations database:
+	humann_databases --download utility_mapping full /home/noyes046/shared/databases/humann3 --update-config yes
+
+#
+##
+###
+####
+##### THE END 
+####
+###
+##
+#
